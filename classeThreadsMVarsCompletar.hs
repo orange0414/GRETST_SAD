@@ -427,6 +427,24 @@ exemplePC = do
     fils <- iniciarFils accionsPC
     esperarFils fils
 
-    
+{-
+    ghci> exemplePC
+    Producer vol posar
+    Producer posant: 'a'
+    Consumidor vol treure
+    Producer vol posar
+    Consumidor treu: 'a'
+    Producer posant: 'b'
+    Consumidor vol treure
+    Producer vol posar
+    Consumidor treu: 'b'
+    Producer posant: 'c'
+    Consumidor vol treure
+    Producer vol posar
+    Consumidor treu: 'c'
+    Producer posant: 'd'
+    Consumidor vol treure
+    Consumidor treu: 'd'
+-}
     
 
