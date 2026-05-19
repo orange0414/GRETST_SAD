@@ -334,22 +334,22 @@ posarPC :: Show a => ControlPrint -> BufferPC a -> a -> IO ()
 posarPC cprt buf val = do
     atomicPutStrLn cprt "Producer vol posar"
 
-    -- Esperar fins que hi hagi espai al buffer
+    -- esperar fins que hi hagi espai al buffer
     takeMVar (cp (control buf))
 
     atomicPutStrLn cprt ("Producer posant: " ++ show val)
 
-    -- Agafar el buffer
+    -- agafar el buffer
     (b, capacitat) <- takeMVar (cua buf)
 
-    -- Afegir el nou element
+    -- afegir el nou element
     let b2 = val : b
 
-    -- Si encara queda espai, permetre que el productor segueixi posant
+    -- si encara queda espai, permetre que el productor segueixi posant
     when (length b2 < capacitat) $
         putMVar (cp (control buf)) ()
 
-    -- Si abans estava buit, despertar el consumidor
+    -- si abans estava buit, despertar el consumidor
     when (null b) $
         putMVar (cc (control buf)) ()
 
@@ -362,7 +362,7 @@ posarPC cprt buf val = do
 
 treurePC :: Show a => ControlPrint -> BufferPC a -> IO a
 treurePC cprt buf = do
-    -- Mostrar que el consumidor vol treure un element
+    -- Mostrar que el consumidor vol treure un element´`
     atomicPutStrLn cprt "Consumidor vol treure"
 
     -- Esperar fins que hi hagi almenys un element al buffer
@@ -373,10 +373,10 @@ treurePC cprt buf = do
     (b, capacitat) <- takeMVar (cua buf)
 
     -- Com que els elements s'afegeixen pel davant (val:b),
-    -- l'element més antic està al final de la llista
+    -- l'element més antic esta al final de la llista
     let val = last b
 
-    -- Eliminar l'element extret del buffer
+    -- init b -> retorna la llista sene l'ultim element
     let b2 = init b
 
     -- Mostrar quin element s'ha consumit
@@ -406,13 +406,13 @@ elems = ['a','b','c','d']
 
 productor :: Show a => ControlPrint -> [a] -> BufferPC a -> IO ()
 productor cprt xs buf = do
+    -- Recorre la llista xs i posa cada element al buffer
     mapM_ (posarPC cprt buf) xs
-
-
 
 
 consumidor :: Show a => ControlPrint -> Int -> BufferPC a -> IO ()
 consumidor cprt n buf = do
+    -- Repeteix n vegades l'acció de treure un element del buffer
     mapM_ (\_ -> treurePC cprt buf) [1..n]
 
 
