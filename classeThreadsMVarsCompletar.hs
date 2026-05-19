@@ -415,9 +415,6 @@ consumidor :: Show a => ControlPrint -> Int -> BufferPC a -> IO ()
 consumidor cprt n buf = do
     mapM_ (\_ -> treurePC cprt buf) [1..n]
 
--- retardar s segons
-retardar :: Int -> IO ()
-retardar s = threadDelay $ s*1000000
 
 
 exemplePC :: IO ()
@@ -425,9 +422,11 @@ exemplePC = do
     cprt <- newMVar ()
     buf <- nouBufferPC 2
 
-    forkIO $ productor cprt elems buf
-    forkIO $ consumidor cprt (length elems) buf
+    let accionsPC = [ productor cprt elems buf, consumidor cprt (length elems) buf]
 
-    retardar 5
+    fils <- iniciarFils accionsPC
+    esperarFils fils
+
+    
     
 
