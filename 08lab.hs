@@ -356,7 +356,7 @@ provaChan = do
     retardar 10
     forkIO $ emissor 0 dades bCastChan
     forkIO $ emissor 1 dades bCastChan
-    retardar 25 -- per esperar que acabi i no escriure una linea de ghci>  al mig
+    retardar 25 -- per esperar que acabi i no escriure una linea de ghci> al mig
     pure ()
 
 
@@ -371,10 +371,20 @@ provaChan = do
 
 servidorEco :: IO ()
 servidorEco = do
-                let port = 3000 :: PortNumber
-                srvrSckt <-  nouServerSocket port
-                infoLog $ "Escoltant pel port " <> show port
-                bucleAccept srvrSckt tascaEcoServidor
+    let port = 3000 :: PortNumber
+
+    -- Creem el socket servidor escoltant al port 3000
+    srvrSckt <- nouServerSocket port
+
+    infoLog $ "Escoltant pel port " <> show port
+
+    -- Executem el bucle principal del servidor
+    -- Si el servidor finalitza o rep Ctrl+C,
+    -- tanquem correctament el socket servidor
+    finally
+        (bucleAccept srvrSckt tascaEcoServidor)
+        (tancarSocket srvrSckt) -- Per tancar el socket del bucleAccpet
+        -- quan fem Ctrl + C de l'extrem ServidorEco no es tanca el socket de accept
 
 -- accept :: Socket -> IO (Socket, SockAddr) 
 bucleAccept :: Socket -> (Socket -> IO a) -> IO a    
@@ -392,16 +402,32 @@ bucleAccept serverSocket tasca  = do
 
 tascaEcoServidor :: Socket -> IO ()
 tascaEcoServidor sc = do
-        sendAll sc $ pack "Entra text: "
+    -- Enviem el missatge inicial només una vegada
+    sendAll sc $ pack "Entra text:\n"
+    bucle
+  where
+    bucle = do
+        -- Espera missatge del client
         miss <- recv sc 1024
         let missString = unpack miss
-        infoLog $ "Rebut -> " ++ missString
+
+        if missString == "" then
+            -- en l'extrem client hem limitat que no envii String buit
+            -- per tant si rep "" es perque el client ha fet Ctrl + C
+            infoLog $ "Client ha tancat la connexio"
+        else
+            -- Mostra el missatge al servidor
+            infoLog $ "<Rebut> " ++ missString
+
+        -- Retorna el mateix missatge al client
         sendAll sc miss
-        if missString == "/fi"  then do
-                                        infoLog $ "Acabant connexio ... " 
-                                        pure ()
-                                else do
-                                        tascaEcoServidor sc
+
+        -- Si rep /fi / "" acaba, sinó continua
+        if missString == "/fi" || missString == "" then do
+            infoLog "Acabant connexio ..."
+            pure ()
+        else 
+            bucle
 
 {-
     1. servidorEco obre un socket al port 3000.
@@ -412,6 +438,13 @@ tascaEcoServidor sc = do
     6. El servidor continua esperant més clients.
 -}
 
+{-
+    -------------------- Encara existeix PROBLEMA --------------------
+    Quan es tanca el servidor "Ctrl + C" i de l'extrem ClientEco encara pot enviar misstges,
+    i el servidor continua responent amb el missatge rebut encara que estigui tancat. S'ha de
+    tancar des de l'extrem ClientEco enviant "/fi" perquè tot el procés de tancament sigui
+    fructuosa.
+-}
 
 ---------------------------------------------------------------------------
 --------------------------  Client Eco ------------------------------------
@@ -427,22 +460,46 @@ exeClient host port tasca =  do
     tasca sck
 
 tascaEcoClient :: Socket -> IO ()
-tascaEcoClient sc = bucle
-    where bucle = do
-                    queFer <- recv sc 1024
-                    putStrLn $ unpack queFer
-                    txt <- getLine
-                    sendAll sc (pack txt)
-                    putStrLn "" 
-                    miss <- recv sc 1024
-                    let missRebut = unpack miss
-                    putStrLn $ "Rebut -> " ++ missRebut
-                    if missRebut == "/fi" then do
-                                              tancarSocket sc
-                                              infoLog "Client finalitzat"
-                                              pure ()
-                                          else bucle          
+tascaEcoClient sc = do
+    -- Rep el primer missatge del servidor: "Entra text:"
+    queFer <- recv sc 1024
+    putStrLn $ unpack queFer
 
+    --cComença el bucle principal del client
+    bucle
+  where
+    bucle = do
+        -- llegeix una linia escrita pel client
+        putStr "<Client> "
+        txt <- getLine
+
+        -- si el clientEco prem Enter sense escriure res,
+        -- no enviem res al servidor i tornem a demanar text
+        -- es provoca un bloquejament
+        if txt == "" then do
+            putStrLn "No es pot enviar text buit"
+            bucle
+        else do
+            -- Envia el text escrit al servidor
+            sendAll sc (pack txt)
+            putStrLn $ "<Missatge enviat al servidor> " ++ txt -- comprova si es va enviar
+
+            -- Espera la resposta del servidor
+            miss <- recv sc 1024
+            let missRebut = unpack miss
+
+            -- Mostra el missatge retornat pel servidor per comprovar que es rebut
+            putStrLn $ "<Misstage del Servidor> " ++ missRebut
+
+            -- Si el missatge és /fi, tanquem el socket i acabem
+            -- Si no, continuem demanant més text
+            if missRebut == "/fi" then 
+                do
+                    tancarSocket sc
+                    infoLog "Client finalitzat"
+                    pure ()
+            else 
+                bucle
 {-
     1. clientEco connecta amb el servidor:
         127.0.0.1 port 3000
@@ -455,7 +512,7 @@ tascaEcoClient sc = bucle
     - llegeix text del teclat amb getLine
     - envia aquest text al servidor
     - rep la resposta del servidor
-    - mostra "Rebut -> ..."
+    - mostra "<Rebut> ..."
 -}
 
 
@@ -479,14 +536,15 @@ tascaXarxa sc = do
     let txt = unpack miss
 
     -- Si txt és buit, normalment vol dir que el servidor ha tancat connexió
-    if txt == ""
-        then pure ()
-        else do
-            -- Mostra el missatge rebut
-            putStrLn txt
+    if txt == "" then 
+        pure ()
+    else do
+        -- Mostra el missatge rebut
+        putStrLn $ "<Servidor> " ++ txt
+        putStr "<Jo> "
 
-            -- Continua esperant més missatges
-            tascaXarxa sc
+        -- Continua esperant més missatges
+        tascaXarxa sc
 
 -- Espera a llegir del teclat i 
 -- envia el que s'ha escrit pel socket
@@ -498,16 +556,25 @@ tascaTeclat sc = do
     -- Envia el text escrit pel socket
     sendAll sc (pack txt)
 
-    -- Torna a esperar més text del teclat
-    tascaTeclat sc
+    -- Si l'usuari escriu /fi, acaba el bucle del teclat
+    -- Si no, continua llegint més text
+    if txt == "/fi" then 
+        pure ()
+    else 
+        tascaTeclat sc
 
 
 
 -- executa tascaXarxa i tascaTeclat en Threads diferents
 tascaClient :: Socket -> IO ()
 tascaClient sc = do
-                tascaXarxaId <- forkIO $ tascaXarxa sc
-                tascaTeclat sc
+    tascaXarxaId <- forkIO $ tascaXarxa sc
+
+    finally
+        (tascaTeclat sc)
+        (do
+            killThread tascaXarxaId
+            tancarSocket sc)
 
 {-
     Thread 1: tascaXarxa -> escolta el socket
@@ -529,10 +596,16 @@ type Nick = String
 
 servidorEcoNick :: IO ()
 servidorEcoNick = do
-                let port = 3000 :: PortNumber
-                srvrSckt <-  nouServerSocket port
-                infoLog $ "Escoltant pel port " <> show port
-                bucleAccept srvrSckt tascaEcoServidorNick
+    let port = 3000 :: PortNumber
+    srvrSckt <- nouServerSocket port
+
+    infoLog $ "Escoltant pel port " <> show port
+
+    -- Executa el servidor amb nick
+    -- Si fem Ctrl+C, es tanca el socket principal del servidor
+    finally
+        (bucleAccept srvrSckt tascaEcoServidorNick)
+        (tancarSocket srvrSckt)
 
 
 tascaEcoServidorNick :: Socket -> IO ()
@@ -556,29 +629,33 @@ obtenirNick sc = do
 
 bucleEco :: Usuari -> IO ()
 bucleEco usuari = do
-    -- Demanem al client que introdueixi text
-    sendAll (socketUsr usuari) $ pack "Entra text: "
+    -- Demanem text al client només una vegada
+    sendAll (socketUsr usuari) $ pack "Entra text"
+    bucle
+  where
+    bucle = do 
+        -- Rebem el missatge del client
+        miss <- recv (socketUsr usuari) 1024
+        let missString = unpack miss
 
-    -- Rebem el missatge enviat pel client
-    miss <- recv (socketUsr usuari) 1024
-
-    -- Convertim el missatge a String
-    let missString = unpack miss
-
-    -- Mostrem al servidor qui ha enviat el missatge
-    infoLog $ nick usuari ++ " -> " ++ missString
-
-    -- Retornem el missatge al client, afegint el seu nick
-    sendAll (socketUsr usuari) $
-        pack $ nick usuari ++ ": " ++ missString
-
-    -- Si el client escriu /fi, acabem la connexió
-    -- Si no, continuem escoltant més missatges
-    if missString == "/fi"
-        then do
-            infoLog $ "Acabant connexio de " ++ nick usuari
+        -- Si recv retorna "", vol dir que el client ha tancat connexió
+        if missString == "" then do
+            infoLog $ nick usuari ++ " ha tancat la connexio"
             pure ()
-        else bucleEco usuari
+        else do
+            -- Mostrem al servidor qui ha enviat el missatge
+            infoLog $ "<" ++ nick usuari ++ "> " ++ missString
+
+            -- Retornem el missatge al client, afegint el nick
+            sendAll (socketUsr usuari) $
+                pack $ nick usuari ++ ": " ++ missString
+
+            -- Si el client escriu /fi, acabem la connexió
+            -- Si no, continuem escoltant més missatges sense reenviar "Entra text:"
+            if missString == "/fi" then do
+                infoLog $ "Acabant connexio de " ++ nick usuari
+                pure ()
+            else bucle
 
 
 
@@ -604,11 +681,19 @@ crearServ = do
 
 servidorEcoNickUnic :: IO ()
 servidorEcoNickUnic = do
-                let port = 3000 :: PortNumber
-                srvrSckt <-  nouServerSocket port
-                infoLog $ "Escoltant pel port " <> show port
-                servidor <- crearServ
-                bucleAccept srvrSckt (tascaEcoServidorNickUnic servidor)
+    let port = 3000 :: PortNumber
+    srvrSckt <- nouServerSocket port
+
+    infoLog $ "Escoltant pel port " <> show port
+
+    -- Creem l'estat del servidor, amb el mapa d'usuaris connectats
+    servidor <- crearServ
+
+    -- Executa el servidor amb nick únic
+    -- Si fem Ctrl+C, es tanca el socket principal del servidor
+    finally
+        (bucleAccept srvrSckt (tascaEcoServidorNickUnic servidor))
+        (tancarSocket srvrSckt)
 
 
 -- intenta afegir un nou usuari al mapa del servidor
@@ -616,21 +701,25 @@ servidorEcoNickUnic = do
 --  - Just usuari, si no hi cap usuari amb nick 'nom'
 --  - Nothing, si ja hi ha un usuari amb nick 'nom' 
 afegirUsuari :: Nick -> Socket -> Servidor -> IO (Maybe Usuari)
-afegirUsuari nom socket servidor =
-    -- Modifiquem de forma segura el mapa d'usuaris connectats
-    modifyMVar (connectats servidor) $ \mapa -> do
+afegirUsuari nom socket servidor = do
+    -- Agafem el mapa d'usuaris connectats
+    mapa <- takeMVar (connectats servidor)
 
-        -- Si el nick ja existeix, no afegim l'usuari
-        if M.member nom mapa
-            then pure (mapa, Nothing)
+    -- Si el nick ja existeix, tornem a guardar el mapa igual
+    if M.member nom mapa then do
+        putMVar (connectats servidor) mapa
+        pure Nothing
 
-            -- Si el nick no existeix, creem l'usuari i l'afegim al mapa
-            else do
-                let usuari = Usuari nom socket
-                let mapa2 = M.insert nom usuari mapa
+    -- Si el nick no existeix, creem l'usuari i l'afegim al mapa
+    else do
+        let usuari = Usuari nom socket
+        let mapa2 = M.insert nom usuari mapa
 
-                -- Retornem el mapa actualitzat i Just usuari
-                pure (mapa2, Just usuari)
+        -- Guardem el mapa actualitzat
+        putMVar (connectats servidor) mapa2
+
+        -- Retornem l'usuari creat
+        pure $ Just usuari
 
 
 
