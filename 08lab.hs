@@ -385,6 +385,7 @@ servidorEco = do
         (bucleAccept srvrSckt tascaEcoServidor)
         (tancarSocket srvrSckt) -- Per tancar el socket del bucleAccpet
         -- quan fem Ctrl + C de l'extrem ServidorEco no es tanca el socket de accept
+        --aquest finally serveix per tancar-ho
 
 -- accept :: Socket -> IO (Socket, SockAddr) 
 bucleAccept :: Socket -> (Socket -> IO a) -> IO a    
@@ -552,9 +553,12 @@ tascaTeclat :: Socket -> IO ()
 tascaTeclat sc = do
     -- Espera que l'usuari escrigui una línia pel teclat
     txt <- getLine
-
-    -- Envia el text escrit pel socket
-    sendAll sc (pack txt)
+    if txt == "" then do
+        putStrLn "No es pot enviar text buit"
+        tascaTeclat sc
+    else do
+        -- Envia el text escrit pel socket
+        sendAll sc (pack txt)
 
     -- Si l'usuari escriu /fi, acaba el bucle del teclat
     -- Si no, continua llegint més text
@@ -690,7 +694,7 @@ servidorEcoNickUnic = do
     servidor <- crearServ
 
     -- Executa el servidor amb nick únic
-    -- Si fem Ctrl+C, es tanca el socket principal del servidor
+    -- per a que quan fem Ctrl+C, es tanqui el socket principal del servidor
     finally
         (bucleAccept srvrSckt (tascaEcoServidorNickUnic servidor))
         (tancarSocket srvrSckt)
