@@ -554,7 +554,8 @@ tascaTeclat sc = do
     -- Espera que l'usuari escrigui una línia pel teclat
     txt <- getLine
     if txt == "" then do
-        putStrLn "No es pot enviar text buit"
+        putStrLn "----No es pot enviar text buit----"
+        putStr "<Jo> "
         tascaTeclat sc
     else do
         -- Envia el text escrit pel socket
